@@ -23,9 +23,17 @@ class ThingsBoardService {
 
     let finalUrl = `${this.baseUrl}${path}`;
     
-    // Always use proxy for external URLs to avoid CORS and Mixed Content issues
-    if (this.baseUrl.startsWith('http')) {
-      finalUrl = `/api/proxy?url=${encodeURIComponent(finalUrl)}`;
+    const isNetlify = window.location.hostname.includes('netlify.app');
+    const isLocalOrDev = window.location.hostname.includes('localhost') || window.location.hostname.includes('run.app');
+
+    // Logic to handle Proxy differently based on environment
+    if (isNetlify) {
+      // Netlify handles proxying via _redirects file
+      // We assume /api/* is proxied to http://cumuloingenieria.duckdns.org:9090/api/*
+      finalUrl = path; 
+    } else if (isLocalOrDev && this.baseUrl.startsWith('http')) {
+      // AI Studio / Local development uses our custom Node proxy
+      finalUrl = `/api/proxy?url=${encodeURIComponent(this.baseUrl + path)}`;
     }
 
     const headers = {

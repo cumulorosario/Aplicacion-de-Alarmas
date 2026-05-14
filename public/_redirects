@@ -1,0 +1,5 @@
+# Redirigir peticiones de API al servidor de ThingsBoard directamente
+/api/*  http://cumuloingenieria.duckdns.org:9090/api/:splat  200
+
+# Soporte para Single Page Application (React Router)
+/*  /index.html  200

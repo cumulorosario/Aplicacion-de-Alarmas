@@ -300,8 +300,8 @@ export default function App() {
             <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(220,38,38,0.4)]">
               <ShieldAlert className="w-10 h-10 text-white" />
             </div>
-            <h1 className="text-2xl font-black text-white tracking-tight uppercase">Cúmulo Gateway</h1>
-            <p className="text-zinc-500 text-sm">Industrial Monitoring System</p>
+            <h1 className="text-2xl font-black text-white tracking-tight uppercase">Cumulo IOT Alertas</h1>
+            <p className="text-zinc-500 text-sm">Monitoreo Industrial</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -320,7 +320,7 @@ export default function App() {
 
             <div className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase ml-2 tracking-widest">Username</label>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase ml-2 tracking-widest">USUARIO (correo electronico)</label>
                 <div className="relative group">
                   <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-red-500 transition-colors" />
                   <input 
@@ -335,7 +335,7 @@ export default function App() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase ml-2 tracking-widest">Password</label>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase ml-2 tracking-widest">CONTRASEÑA</label>
                 <div className="relative group">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-red-500 transition-colors" />
                   <input 
@@ -384,8 +384,9 @@ export default function App() {
             </div>
           </form>
 
-          <div className="mt-8 pt-8 border-t border-zinc-800/50 text-center">
-            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.2em]">Cúmulo Gateway • 9090</p>
+          <div className="mt-8 pt-8 border-t border-zinc-800/50 text-center flex flex-col items-center gap-1">
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.2em]">www.cumuloingenieria.com.ar</p>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.2em]">ventas@cumuloingenieria.com.ar</p>
           </div>
         </motion.div>
       </div>
@@ -414,7 +415,7 @@ export default function App() {
           <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/20">
             <Activity className="w-6 h-6 text-white" />
           </div>
-          {sidebarOpen && <span className="font-black tracking-tight text-xl italic uppercase">TITAN.PRO</span>}
+          {sidebarOpen && <span className="font-black tracking-tight text-xl italic uppercase font-mono">CUMULO.IOT</span>}
         </div>
 
         <nav className="flex-1 px-4 py-8 space-y-2">
