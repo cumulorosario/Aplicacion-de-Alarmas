@@ -1,0 +1,6 @@
+{
+  "name": "Cúmulo Gateway",
+  "description": "Panel de control industrial para monitoreo en tiempo real de ThingsBoard con alertas de pantalla completa.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["real-time-data", "alarm-management"]
+}
