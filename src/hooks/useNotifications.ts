@@ -64,23 +64,27 @@ export function useNotifications() {
         const settings = options?.settings || { vibrate: true, sound: true, wake: true };
         
         // Si la app está activa, no vibramos ni hacemos ruido con la notificación push
-        // porque el usuario ya está viendo la UI de alarma
-        const useVibration = isActive ? false : settings.vibrate;
-        const useSound = isActive ? false : settings.sound;
-        const importance = isActive ? 3 : (settings.wake ? 5 : 4);
+        const useVibration = !isActive && settings.vibrate;
+        const useSound = !isActive && settings.sound;
+        const importance = isActive ? 2 : (settings.wake ? 5 : 4); // 2 = LOW, no sound/vibration
 
-        // Crear/Asegurar canal con la importancia configurada
-        await LocalNotifications.createChannel({
-          id: 'critical_alerts',
-          name: 'Alertas Críticas',
-          importance: importance,
-          description: 'Canal para alarmas industriales urgentes',
-          sound: useSound ? 'beep.wav' : undefined,
-          visibility: 1,
-          vibration: useVibration,
-          lights: true,
-          lightColor: '#ff0000'
-        });
+        // Solo crear el canal si es necesario para evitar ruidos de sistema
+        const channels = await LocalNotifications.listChannels();
+        const existing = channels.channels.find(c => c.id === 'critical_alerts');
+        
+        if (!existing || existing.importance !== importance) {
+          await LocalNotifications.createChannel({
+            id: 'critical_alerts',
+            name: 'Alertas Críticas',
+            importance: importance,
+            description: 'Canal para alarmas industriales urgentes',
+            sound: useSound ? 'beep.wav' : undefined,
+            visibility: 1,
+            vibration: useVibration,
+            lights: true,
+            lightColor: '#ff0000'
+          });
+        }
 
         await LocalNotifications.schedule({
           notifications: [

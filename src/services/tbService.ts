@@ -31,15 +31,20 @@ class ThingsBoardService {
     const isNative = Capacitor.isNativePlatform() || (window as any).Capacitor?.isNative;
     const platform = Capacitor.getPlatform();
 
-    // Logic to handle Proxy differently based on environment
+    // Logic to handle Proxy
     if (isNative) {
       // On native apps, we don't use the proxy as we can jump CORS/HTTP restrictions using Native HTTP
       finalUrl = `${this.baseUrl}${path}`;
     } else if (isNetlify) {
       finalUrl = path; 
-    } else if (isLocalOrDev && this.baseUrl.startsWith('http')) {
-      finalUrl = `/api/proxy?url=${encodeURIComponent(this.baseUrl + path)}`;
+    } else if (this.baseUrl.startsWith('http')) {
+      // For web based apps, always use proxy if calling an external absolute URL
+      // to avoid Mixed Content (if app is HTTPS and TB is HTTP) and CORS issues.
+      const proxyPath = `/api/proxy?url=${encodeURIComponent(this.baseUrl + path)}`;
+      finalUrl = window.location.origin + proxyPath;
     }
+
+    console.log(`[TB Service] Fetching: ${options.method || 'GET'} ${finalUrl}`);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -74,43 +79,51 @@ class ThingsBoardService {
       }
     }
 
-    const response = await fetch(finalUrl, { ...options, headers });
-    const contentType = response.headers.get('content-type');
-    
-    if (!response.ok) {
-      let errorMessage = `Error de Servidor (${response.status})`;
-      try {
-        if (contentType?.includes('application/json')) {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } else {
-          const text = await response.text();
-          errorMessage = text.slice(0, 150) || `Error ${response.status}`;
-          // If it's HTML but 401/403, it's likely a login redirect
-          if (text.includes('<!doctype html>') && (response.status === 401 || response.status === 403)) {
-            errorMessage = "Sesión expirada o no autorizada. Por favor, reingresa.";
+    try {
+      const response = await fetch(finalUrl, { ...options, headers });
+      const contentType = response.headers.get('content-type');
+      
+      if (!response.ok) {
+        let errorMessage = `Error de Servidor (${response.status})`;
+        try {
+          if (contentType?.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          } else {
+            const text = await response.text();
+            errorMessage = text.slice(0, 150) || `Error ${response.status}`;
+            // If it's HTML but 401/403, it's likely a login redirect
+            if (text.includes('<!doctype html>') && (response.status === 401 || response.status === 403)) {
+              errorMessage = "Sesión expirada o no autorizada. Por favor, reingresa.";
+            }
           }
+        } catch (e) {
+          errorMessage = `Error ${response.status}`;
         }
-      } catch (e) {
-        errorMessage = `Error ${response.status}`;
+        console.error(`[TB Service Error] ${path}: ${errorMessage}`);
+        throw new Error(errorMessage);
       }
-      console.error(`[TB Service Error] ${path}: ${errorMessage}`);
-      throw new Error(errorMessage);
-    }
 
-    if (contentType?.includes('application/json')) {
-      return response.json();
-    } else {
-      const text = await response.text();
-      // Verificamos si realmente no es un JSON por accidente (a veces content-type falta)
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        const preview = text.slice(0, 100).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const envInfo = `Plataforma: ${platform}, URL: ${this.baseUrl}`;
-        console.error(`[TB Service] Respuesta no JSON de ${path} (${platform}): ${preview}`);
-        throw new Error(`Respuesta inesperada del servidor (no es JSON). ${envInfo}. Verifica que la URL no esté bloqueada.`);
+      if (contentType?.includes('application/json')) {
+        return response.json();
+      } else {
+        const text = await response.text();
+        // Verificamos si realmente no es un JSON por accidente (a veces content-type falta)
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          const preview = text.slice(0, 100).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const envInfo = `Plataforma: ${platform}, URL: ${this.baseUrl}`;
+          console.error(`[TB Service] Respuesta no JSON de ${path} (${platform}): ${preview}`);
+          throw new Error(`Respuesta inesperada del servidor (no es JSON). ${envInfo}. Verifica que la URL no esté bloqueada.`);
+        }
       }
+    } catch (e: any) {
+      console.error(`[TB Service] Error en fetchApi (${path}):`, e);
+      if (e.message === 'Failed to fetch' || e.name === 'TypeError') {
+        throw new Error("Error de Red: No se pudo contactar con el servidor. Verifica tu conexión a internet o si el servidor está bloqueando la petición.");
+      }
+      throw e;
     }
   }
 

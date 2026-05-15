@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import axios from "axios";
+import https from "https";
 import dns from "dns";
 import fs from "fs";
 import { promisify } from "util";
@@ -91,6 +92,9 @@ async function startServer() {
         timeout: 25000,
         maxRedirects: 0,
         validateStatus: () => true,
+        httpsAgent: new https.Agent({
+          rejectUnauthorized: false
+        })
       };
 
       if (targetHost) {
