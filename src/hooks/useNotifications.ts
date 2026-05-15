@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { App as CapacitorApp } from '@capacitor/app';
 
 export function useNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
+    // Escuchar cambios de estado de la app
+    const handler = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      setIsActive(isActive);
+      console.log(`[Notifications] App state changed. Active: ${isActive}`);
+    });
+
     const checkPermissions = async () => {
       if (Capacitor.isNativePlatform()) {
         const status = await LocalNotifications.checkPermissions();
@@ -53,6 +61,27 @@ export function useNotifications() {
   const showNotification = async (title: string, options?: any) => {
     if (permission === 'granted') {
       if (Capacitor.isNativePlatform()) {
+        const settings = options?.settings || { vibrate: true, sound: true, wake: true };
+        
+        // Si la app está activa, no vibramos ni hacemos ruido con la notificación push
+        // porque el usuario ya está viendo la UI de alarma
+        const useVibration = isActive ? false : settings.vibrate;
+        const useSound = isActive ? false : settings.sound;
+        const importance = isActive ? 3 : (settings.wake ? 5 : 4);
+
+        // Crear/Asegurar canal con la importancia configurada
+        await LocalNotifications.createChannel({
+          id: 'critical_alerts',
+          name: 'Alertas Críticas',
+          importance: importance,
+          description: 'Canal para alarmas industriales urgentes',
+          sound: useSound ? 'beep.wav' : undefined,
+          visibility: 1,
+          vibration: useVibration,
+          lights: true,
+          lightColor: '#ff0000'
+        });
+
         await LocalNotifications.schedule({
           notifications: [
             {
@@ -60,7 +89,14 @@ export function useNotifications() {
               body: options?.body || '',
               id: Math.floor(Math.random() * 10000),
               extra: options?.tag ? { tag: options.tag } : undefined,
-              sound: 'beep.wav'
+              channelId: 'critical_alerts',
+              smallIcon: 'ic_stat_alarm',
+              largeIcon: 'ic_launcher',
+              schedule: { at: new Date(Date.now() + 100) },
+              sound: useSound ? 'beep.wav' : undefined,
+              ongoing: !isActive && importance === 5,
+              autoCancel: true,
+              group: 'vigia_alarms'
             }
           ]
         });

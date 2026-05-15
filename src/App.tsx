@@ -131,6 +131,11 @@ export default function App() {
   const [loginData, setLoginData] = useState({ user: '', pass: '' });
   const [rememberMe, setRememberMe] = useState(false);
   const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [alarmSettings, setAlarmSettings] = useState({
+    vibrate: true,
+    sound: true,
+    wake: true
+  });
   
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -139,6 +144,23 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const { showNotification, requestPermission, permission } = useNotifications();
+
+  // Cargar ajustes al inicio
+  useEffect(() => {
+    const saved = localStorage.getItem('vigia_alarm_settings');
+    if (saved) {
+      try {
+        setAlarmSettings(JSON.parse(saved));
+      } catch (e) {
+        console.error("Error loading settings", e);
+      }
+    }
+  }, []);
+
+  // Guardar ajustes
+  useEffect(() => {
+    localStorage.setItem('vigia_alarm_settings', JSON.stringify(alarmSettings));
+  }, [alarmSettings]);
 
   // PWA Install Prompt Handler
   useEffect(() => {
@@ -186,14 +208,15 @@ export default function App() {
           setCriticalAlarm(latestCritical);
           showNotification(`ALERTA CRÍTICA: ${latestCritical.originatorName}`, {
             body: latestCritical.type,
-            tag: latestCritical.id.id
+            tag: latestCritical.id.id,
+            settings: alarmSettings
           });
         }
       } else if (!latestCritical) {
         setCriticalAlarm(null);
       }
 
-      setAlarms(newAlarms);
+      setAlarms(newAlarms.slice(0, 20));
       setDevices(newDevices);
       setErrorMessage(null);
     } catch (error: any) {
@@ -820,16 +843,16 @@ export default function App() {
                 <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
                   <h4 className="font-bold flex items-center gap-2">
                     <Bell className="w-5 h-5 text-blue-500" />
-                    Notificaciones
+                    Ajustes de Alerta
                   </h4>
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-6">
                     <div className="flex items-center justify-between">
                        <div>
-                          <p className="text-sm font-bold">Estado: {
-                            permission === 'granted' ? 'Habilitadas' : 
-                            permission === 'denied' ? 'Bloqueadas' : 'Pendientes'
+                          <p className="text-sm font-bold">Estado del Canal: {
+                            permission === 'granted' ? 'Operativo' : 
+                            permission === 'denied' ? 'Bloqueado' : 'Sin permisos'
                           }</p>
-                          <p className="text-xs text-zinc-500">Alertas críticas incluso en segundo plano o celular bloqueado.</p>
+                          <p className="text-xs text-zinc-500">Alertas críticas incluso en segundo plano.</p>
                        </div>
                        <button 
                           onClick={handleRequestPermission}
@@ -840,24 +863,50 @@ export default function App() {
                        >
                           <div className={cn(
                             "absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all",
-                            permission === 'granted' ? "right-1" : "left-1"
+                            permission === 'granted' ? "left-7" : "left-1"
                           )} />
                        </button>
                     </div>
+
                     {permission === 'granted' && (
-                      <button 
-                        onClick={() => showNotification('Prueba de Notificación', { body: 'Si ves esto, las alertas están configuradas correctamente.', tag: 'test' })}
-                        className="text-[10px] text-zinc-500 hover:text-white underline uppercase tracking-widest text-left"
-                      >
-                        Enviar notificación de prueba
-                      </button>
+                      <div className="space-y-4 pt-4 border-t border-zinc-800">
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-400 text-sm">Vibración</span>
+                          <button 
+                             onClick={() => setAlarmSettings(prev => ({ ...prev, vibrate: !prev.vibrate }))}
+                             className={cn("w-10 h-5 rounded-full relative transition-colors", alarmSettings.vibrate ? "bg-red-600" : "bg-zinc-800")}
+                          >
+                             <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-zinc-100 transition-all", alarmSettings.vibrate ? "left-5.5" : "left-0.5")} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-400 text-sm">Sonido</span>
+                          <button 
+                             onClick={() => setAlarmSettings(prev => ({ ...prev, sound: !prev.sound }))}
+                             className={cn("w-10 h-5 rounded-full relative transition-colors", alarmSettings.sound ? "bg-red-600" : "bg-zinc-800")}
+                          >
+                             <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-zinc-100 transition-all", alarmSettings.sound ? "left-5.5" : "left-0.5")} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-400 text-sm">Despertar Pantalla</span>
+                          <button 
+                             onClick={() => setAlarmSettings(prev => ({ ...prev, wake: !prev.wake }))}
+                             className={cn("w-10 h-5 rounded-full relative transition-colors", alarmSettings.wake ? "bg-red-600" : "bg-zinc-800")}
+                          >
+                             <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-zinc-100 transition-all", alarmSettings.wake ? "left-5.5" : "left-0.5")} />
+                          </button>
+                        </div>
+                        
+                        <button 
+                          onClick={() => showNotification('Prueba de Alerta', { body: 'Prueba de configuración de Vigia Industrial.', settings: alarmSettings })}
+                          className="pt-2 text-[10px] text-zinc-500 hover:text-white underline uppercase tracking-widest text-left"
+                        >
+                          Enviar notificación de prueba
+                        </button>
+                      </div>
                     )}
                   </div>
-                  {permission === 'denied' && (
-                    <p className="text-[10px] text-red-500 font-bold uppercase italic">
-                      Debes habilitar los permisos manualmente en los ajustes de tu navegador.
-                    </p>
-                  )}
                 </div>
 
                 <button 
