@@ -5,10 +5,9 @@ workflows:
     instance_type: mac_mini_m1
     environment:
       node: latest
+      java: 21
       groups:
         - google_play # Opcional: para credenciales si deseas publicar automáticamente
-      vars:
-        JAVA_HOME: /Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
     scripts:
       - name: Install dependencies
         script: npm install
