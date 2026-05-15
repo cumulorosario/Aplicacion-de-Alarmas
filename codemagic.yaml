@@ -12,8 +12,11 @@ workflows:
         script: npm install
       - name: Build Web App
         script: npm run build
-      - name: Capacitor Sync
+      - name: Capacitor Setup
         script: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
           npx cap sync android
       - name: Build Android Native
         script: |
