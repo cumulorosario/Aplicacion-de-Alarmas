@@ -129,32 +129,21 @@ async function startServer() {
   });
 
   // Handle production vs development
-  const rootPath = process.cwd();
-  const distPathInRoot = path.join(rootPath, 'dist');
-  const distPathCurrent = rootPath; // In case the server is running WITHIN dist
-  
-  let finalDistPath: string | null = null;
-  
-  if (fs.existsSync(path.join(distPathInRoot, 'index.html'))) {
-    finalDistPath = distPathInRoot;
-  } else if (fs.existsSync(path.join(distPathCurrent, 'index.html'))) {
-    finalDistPath = distPathCurrent;
-  }
+  const isProd = process.env.NODE_ENV === 'production';
+  const distPath = path.join(process.cwd(), 'dist');
 
-  const isProd = finalDistPath !== null || process.env.NODE_ENV === 'production';
-
-  if (isProd && finalDistPath) {
-    console.log(`[Production] serving from: ${finalDistPath}`);
-    app.use(express.static(finalDistPath));
+  if (isProd && fs.existsSync(distPath)) {
+    console.log(`[Production] serving from: ${distPath}`);
+    app.use(express.static(distPath));
     
     app.get('*', (req, res) => {
       if (req.path.startsWith('/api/')) return res.status(404).json({ error: "Endpoint not found" });
       
-      const indexPath = path.join(finalDistPath!, 'index.html');
+      const indexPath = path.join(distPath, 'index.html');
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
-        res.status(404).send(`Error: index.html not found. Paths tried: ${indexPath}`);
+        res.status(404).send(`Error: index.html not found in dist.`);
       }
     });
   } else {

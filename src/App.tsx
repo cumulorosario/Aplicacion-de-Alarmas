@@ -122,7 +122,7 @@ export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [criticalAlarm, setCriticalAlarm] = useState<Alarm | null>(null);
   const [lastDismissedTime, setLastDismissedTime] = useState<number>(0);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { showNotification, requestPermission, permission } = useNotifications();
 
   const DEFAULT_URL = 'http://cumuloingenieria.duckdns.org:9090';
@@ -245,12 +245,8 @@ export default function App() {
     if (savedUser && savedPass) {
       setLoginData({ user: savedUser, pass: savedPass });
       setRememberMe(true);
-      // If we have saved credentials, trigger biometric prompt on startup as requested
-      if (window.PublicKeyCredential) {
-        handleBiometricLogin();
-      } else {
-        autoLogin(savedUser, savedPass);
-      }
+      // We don't trigger biometrics automatically anymore to avoid confusion with "key/device" prompts
+      autoLogin(savedUser, savedPass);
     }
   }, []);
 
@@ -268,7 +264,7 @@ export default function App() {
       if (criticalAlarm?.id.id === id) setCriticalAlarm(null);
       fetchData();
     } catch (e) {
-      alert("Error al reconocer");
+      console.error("Ack error", e);
     }
   };
 
@@ -278,7 +274,14 @@ export default function App() {
       if (criticalAlarm?.id.id === id) setCriticalAlarm(null);
       fetchData();
     } catch (e) {
-      alert("Error al limpiar");
+      console.error("Clear error", e);
+    }
+  };
+
+  const handleViewChange = (view: AppView) => {
+    setCurrentView(view);
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false);
     }
   };
 
@@ -406,10 +409,17 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Sidebar */}
+      {/* Sidebar - Overlay for mobile when open */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" 
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <aside className={cn(
-        "bg-zinc-900 border-r border-zinc-800 transition-all duration-300 flex flex-col",
-        sidebarOpen ? "w-72" : "w-20"
+        "fixed lg:static inset-y-0 left-0 z-50 bg-zinc-900 border-r border-zinc-800 transition-all duration-300 flex flex-col",
+        sidebarOpen ? "w-72 translate-x-0" : "w-20 -translate-x-full lg:translate-x-0"
       )}>
         <div className="p-6 flex items-center gap-4">
           <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/20">
@@ -424,28 +434,28 @@ export default function App() {
             icon={<LayoutDashboard />} 
             label="Dashboard" 
             expanded={sidebarOpen} 
-            onClick={() => setCurrentView('dashboard')}
+            onClick={() => handleViewChange('dashboard')}
           />
           <NavItem 
             active={currentView === 'devices'} 
             icon={<Cpu />} 
             label="Dispositivos" 
             expanded={sidebarOpen} 
-            onClick={() => setCurrentView('devices')}
+            onClick={() => handleViewChange('devices')}
           />
           <NavItem 
             active={currentView === 'alarms'} 
             icon={<Bell />} 
             label="Alertas" 
             expanded={sidebarOpen} 
-            onClick={() => setCurrentView('alarms')}
+            onClick={() => handleViewChange('alarms')}
           />
           <NavItem 
             active={currentView === 'settings'} 
             icon={<Settings />} 
             label="Ajustes" 
             expanded={sidebarOpen} 
-            onClick={() => setCurrentView('settings')}
+            onClick={() => handleViewChange('settings')}
           />
         </nav>
 
@@ -491,77 +501,21 @@ export default function App() {
           {currentView === 'dashboard' && (
             <>
               {/* Stats Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard icon={<AlertCircle />} label="Alarmas Activas" value={alarms.length} color="text-red-500" />
-                <StatCard icon={<Cpu />} label="Dispositivos Online" value={devices.filter(d => d.online).length} color="text-emerald-500" />
-                <StatCard icon={<LayoutDashboard />} label="Alertas Críticas" value={alarms.filter(a => a.severity === 'CRITICAL').length} color="text-red-600" />
-                <StatCard icon={<Activity />} label="Total Dispositivos" value={devices.length} color="text-blue-500" />
-              </div>
-
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                {/* Alarms Feed - Limited to 5 for Dashboard */}
-                <section className="xl:col-span-2 space-y-4">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-2xl font-black italic uppercase tracking-tighter flex items-center gap-3">
-                      <ShieldAlert className="w-8 h-8 text-red-500" />
-                      Panel de Alarmas
-                    </h3>
-                    <button 
-                      onClick={() => setCurrentView('alarms')}
-                      className="text-red-500 text-sm font-bold hover:underline"
-                    >
-                      Ver todas
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {alarms.length === 0 ? (
-                      <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-12 text-center">
-                        <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-4 opacity-50" />
-                        <p className="text-zinc-500 font-medium">Sitema despejado. No hay alarmas pendientes.</p>
-                      </div>
-                    ) : (
-                      alarms.slice(0, 5).map(alarm => (
-                        <AlarmCard 
-                          key={alarm.id.id} 
-                          alarm={alarm} 
-                          onAck={handleAck} 
-                          onClear={handleClear} 
-                        />
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                {/* Devices Sidebar - Limited to 8 for Dashboard */}
-                <section className="space-y-6">
-                  <h3 className="text-xl font-bold flex items-center gap-3">
-                    <Cpu className="w-6 h-6 text-blue-500" />
-                    Dispositivos Online
-                  </h3>
-                  <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl overflow-hidden shadow-inner">
-                    {devices.length === 0 ? (
-                      <div className="p-12 text-center">
-                        <Cpu className="w-10 h-10 text-zinc-700 mx-auto mb-4" />
-                        <p className="text-zinc-500 text-sm">No hay dispositivos.</p>
-                      </div>
-                    ) : (
-                      devices.slice(0, 8).map((device, idx) => (
-                        <DeviceRow 
-                          key={device.id.id} 
-                          device={device} 
-                          isLast={idx === Math.min(devices.length, 8) - 1} 
-                        />
-                      ))
-                    )}
-                  </div>
-                  <button 
-                    onClick={() => setCurrentView('devices')}
-                    className="w-full py-4 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-2xl flex items-center justify-center gap-2 text-sm font-bold text-zinc-400 hover:text-white transition-all"
-                  >
-                    Ver Todos <ExternalLink className="w-4 h-4" />
-                  </button>
-                </section>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <StatCard 
+                  icon={<AlertCircle />} 
+                  label="Alarmas Activas" 
+                  value={alarms.filter(a => a.status.startsWith('ACTIVE')).length} 
+                  color="text-red-500" 
+                  onClick={() => handleViewChange('alarms')}
+                />
+                <StatCard 
+                  icon={<Cpu />} 
+                  label="Dispositivos Online" 
+                  value={`${devices.filter(d => d.online).length} / ${devices.length}`} 
+                  color="text-emerald-500" 
+                  onClick={() => handleViewChange('devices')}
+                />
               </div>
             </>
           )}
@@ -619,14 +573,16 @@ export default function App() {
                 </div>
               </div>
               <div className="space-y-4">
-                {alarms.map(alarm => (
-                  <AlarmCard 
-                    key={alarm.id.id} 
-                    alarm={alarm} 
-                    onAck={handleAck} 
-                    onClear={handleClear} 
-                  />
-                ))}
+                {[...alarms]
+                  .sort((a, b) => b.createdTime - a.createdTime)
+                  .map(alarm => (
+                    <AlarmCard 
+                      key={alarm.id.id} 
+                      alarm={alarm} 
+                      onAck={handleAck} 
+                      onClear={handleClear} 
+                    />
+                  ))}
                 {alarms.length === 0 && (
                   <div className="p-20 text-center bg-zinc-900/30 border border-dashed border-zinc-800 rounded-3xl">
                      <Bell className="w-16 h-16 text-zinc-800 mx-auto mb-4" />
@@ -650,14 +606,15 @@ export default function App() {
                     <Server className="w-5 h-5 text-red-500" />
                     Información del Servidor
                   </h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-4">
                      <div>
-                        <p className="text-[10px] text-zinc-500 uppercase font-black mb-1">URL Base</p>
-                        <p className="text-sm font-mono text-white">{tbService.getBaseUrl() || 'No disponible'}</p>
-                     </div>
-                     <div>
-                        <p className="text-[10px] text-zinc-500 uppercase font-black mb-1">Estado Conexión</p>
-                        <p className="text-sm text-emerald-500 font-bold">Activo</p>
+                        <p className="text-[10px] text-zinc-500 uppercase font-black mb-1">URL Base del Servidor</p>
+                        <p className="text-sm font-mono text-white mb-2 break-all">{tbService.getBaseUrl() || 'No disponible'}</p>
+                        
+                        <div className="flex items-center gap-2 bg-emerald-500/10 w-fit px-3 py-1 rounded-lg border border-emerald-500/20">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <p className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">En Línea / Conectado</p>
+                        </div>
                      </div>
                   </div>
                 </div>
@@ -728,17 +685,32 @@ function AlarmCard({ alarm, onAck, onClear }: {
   onAck: (id: string) => Promise<void>; 
   onClear: (id: string) => Promise<void>;
 }) {
+  const isAck = alarm.status === 'ACTIVE_ACK' || alarm.status === 'CLEARED_ACK';
+  const isCleared = alarm.status === 'CLEARED_UNACK' || alarm.status === 'CLEARED_ACK';
+
+  const statusLabel = 
+    alarm.status === 'ACTIVE_UNACK' ? 'ACTIVA' :
+    alarm.status === 'ACTIVE_ACK' ? 'RECONOCIDA' :
+    alarm.status === 'CLEARED_UNACK' ? 'DESPEJADA' : 'FINALIZADA';
+
   return (
     <motion.div 
       layout
       className={cn(
         "bg-zinc-900 border-l-4 p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-6 transition-all border-zinc-800",
-        alarm.severity === 'CRITICAL' && "border-l-red-600 bg-red-950/10"
+        !isCleared && alarm.severity === 'CRITICAL' && "border-l-red-600 bg-red-950/10",
+        isCleared && "opacity-60 border-l-emerald-600"
       )}
     >
       <div className="space-y-1">
         <div className="flex items-center gap-3 mb-1">
           <SeverityBadge severity={alarm.severity} />
+          <span className={cn(
+            "px-2 py-0.5 rounded text-[10px] font-black tracking-widest",
+            isCleared ? "bg-emerald-500/10 text-emerald-500" : "bg-zinc-800 text-zinc-400"
+          )}>
+            {statusLabel}
+          </span>
           <span className="text-zinc-500 text-xs font-mono">{formatTimestamp(alarm.createdTime)}</span>
         </div>
         <h4 className="text-lg font-bold text-white capitalize">{alarm.type.replace(/_/g, ' ')}</h4>
@@ -749,18 +721,28 @@ function AlarmCard({ alarm, onAck, onClear }: {
       </div>
 
       <div className="flex items-center gap-3">
-        <button 
-          onClick={() => onAck(alarm.id.id)}
-          className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-bold transition-all active:scale-95 border border-zinc-700"
-        >
-          Reconocer
-        </button>
-        <button 
-          onClick={() => onClear(alarm.id.id)}
-          className="px-6 py-3 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-500 hover:text-white border border-emerald-500/20 rounded-xl text-sm font-bold transition-all active:scale-95"
-        >
-          Resolver
-        </button>
+        {!isAck && (
+          <button 
+            onClick={() => onAck(alarm.id.id)}
+            className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-bold transition-all active:scale-95 border border-zinc-700"
+          >
+            Reconocer
+          </button>
+        )}
+        {!isCleared && (
+          <button 
+            onClick={() => onClear(alarm.id.id)}
+            className="px-6 py-3 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-500 hover:text-white border border-emerald-500/20 rounded-xl text-sm font-bold transition-all active:scale-95"
+          >
+            Resolver
+          </button>
+        )}
+        {isCleared && isAck && (
+          <div className="flex items-center gap-2 text-emerald-500 bg-emerald-500/10 px-4 py-2 rounded-xl">
+            <CheckCircle2 className="w-4 h-4" />
+            <span className="text-xs font-bold uppercase">Cerrada</span>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -818,9 +800,15 @@ function NavItem({ icon, label, active, expanded, onClick }: {
   );
 }
 
-function StatCard({ icon, label, value, color }: { icon: any; label: string; value: string | number; color: string }) {
+function StatCard({ icon, label, value, color, onClick }: { icon: any; label: string; value: string | number; color: string; onClick?: () => void }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4 shadow-xl">
+    <div 
+      onClick={onClick}
+      className={cn(
+        "bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4 shadow-xl transition-all",
+        onClick && "cursor-pointer hover:border-zinc-700 hover:bg-zinc-800/50 active:scale-[0.98]"
+      )}
+    >
       <div className={cn("p-3 bg-zinc-800 w-fit rounded-2xl", color)}>
         {React.cloneElement(icon as React.ReactElement, { className: 'w-6 h-6' })}
       </div>
