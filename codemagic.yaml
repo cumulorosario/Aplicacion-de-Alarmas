@@ -18,13 +18,13 @@ workflows:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
-          # Habilitar tráfico HTTP (Cleartext) y Permisos de Notificación
+          # Habilitar tráfico HTTP (Cleartext), Permisos de Notificación y Auto-Inicio
           if [[ "$OSTYPE" == "darwin"* ]]; then
             sed -i '' 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
-            sed -i '' 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
+            sed -i '' 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
           else
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
-            sed -i 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
+            sed -i 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
           fi
           npx cap sync android
       - name: Build Android Native

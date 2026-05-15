@@ -343,7 +343,7 @@ export default function App() {
       console.log("Resultado de solicitud de permisos:", result);
       if (result === 'granted') {
         showNotification('¡Notificaciones Activadas!', {
-          body: 'Ahora recibirás alertas críticas de Cumulo Ingenieria.'
+          body: 'Ahora recibirás alertas críticas de Vigia Industrial.'
         });
       } else if (result === 'denied') {
         alert("Las notificaciones han sido bloqueadas. Por favor, habilítalas manualmente en los ajustes de tu navegador o dispositivo.");
@@ -379,7 +379,7 @@ export default function App() {
             <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(220,38,38,0.4)]">
               <ShieldAlert className="w-10 h-10 text-white" />
             </div>
-            <h1 className="text-2xl font-black text-white tracking-tight uppercase">Cumulo IOT Alertas</h1>
+            <h1 className="text-2xl font-black text-white tracking-tight uppercase">Vigia Industrial</h1>
             <p className="text-zinc-500 text-sm">Monitoreo Industrial</p>
           </div>
 

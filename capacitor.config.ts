@@ -1,8 +1,8 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.cumulo.ingenieria.gateway',
-  appName: 'Cumulo Gateway',
+  appId: 'com.cumulo.ingenieria.vigia',
+  appName: 'Vigia Industrial',
   webDir: 'dist',
   server: {
     androidScheme: 'https'

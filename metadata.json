@@ -1,6 +1,6 @@
 {
-  "name": "Cumulo IOT Alertas",
-  "description": "Panel de control industrial para monitoreo en tiempo real de ThingsBoard con alertas de pantalla completa.",
+  "name": "Vigia Industrial",
+  "description": "Panel de control industrial avanzado para monitoreo de ThingsBoard con alertas de alta disponibilidad y gestión de alarmas críticas.",
   "requestFramePermissions": ["notifications"],
-  "majorCapabilities": ["real-time-data", "alarm-management"]
+  "majorCapabilities": ["real-time-data", "alarm-management", "background-notifications"]
 }
