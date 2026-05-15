@@ -18,6 +18,12 @@ workflows:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
+          # Habilitar tráfico HTTP (Cleartext) - Versión compatible
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
+          else
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
+          fi
           npx cap sync android
       - name: Build Android Native
         script: |

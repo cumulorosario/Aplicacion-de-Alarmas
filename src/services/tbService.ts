@@ -1,4 +1,5 @@
 import { Alarm, AlarmStatus, AuthResponse, Device, TelemetryData } from '../types';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 class ThingsBoardService {
   private baseUrl: string = '';
@@ -25,22 +26,51 @@ class ThingsBoardService {
     
     const isNetlify = window.location.hostname.includes('netlify.app');
     const isLocalOrDev = window.location.hostname.includes('localhost') || window.location.hostname.includes('run.app');
+    const isNative = Capacitor.isNativePlatform() || (window as any).Capacitor?.isNative;
+    const platform = Capacitor.getPlatform();
 
     // Logic to handle Proxy differently based on environment
-    if (isNetlify) {
-      // Netlify handles proxying via _redirects file
-      // We assume /api/* is proxied to http://cumuloingenieria.duckdns.org:9090/api/*
+    if (isNative) {
+      // On native apps, we don't use the proxy as we can jump CORS/HTTP restrictions using Native HTTP
+      finalUrl = `${this.baseUrl}${path}`;
+    } else if (isNetlify) {
       finalUrl = path; 
     } else if (isLocalOrDev && this.baseUrl.startsWith('http')) {
-      // AI Studio / Local development uses our custom Node proxy
       finalUrl = `/api/proxy?url=${encodeURIComponent(this.baseUrl + path)}`;
     }
 
-    const headers = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(this.token ? { 'X-Authorization': `Bearer ${this.token}` } : {}),
-      ...options.headers,
+      ...((options.headers as Record<string, string>) || {}),
     };
+
+    if (isNative) {
+      try {
+        const response = await CapacitorHttp.request({
+          url: finalUrl,
+          method: options.method || 'GET',
+          data: options.body ? JSON.parse(options.body as string) : undefined,
+          headers
+        });
+
+        if (response.status >= 200 && response.status < 300) {
+          return response.data;
+        }
+
+        let errorMessage = `Error de Servidor (${response.status})`;
+        if (typeof response.data === 'string' && response.data.includes('<!doctype html>')) {
+          errorMessage = "No se pudo conectar con el servidor ThingsBoard (Posible error de URL o Red).";
+        } else if (response.data?.message) {
+          errorMessage = response.data.message;
+        }
+        
+        throw new Error(errorMessage);
+      } catch (e: any) {
+        if (e.message) throw e;
+        throw new Error(`Error de conexión nativa (${platform})`);
+      }
+    }
 
     const response = await fetch(finalUrl, { ...options, headers });
     const contentType = response.headers.get('content-type');
@@ -74,9 +104,10 @@ class ThingsBoardService {
       try {
         return JSON.parse(text);
       } catch (e) {
-        const preview = text.slice(0, 70).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        console.error(`[TB Service] Respuesta no JSON de ${path}: ${preview}`);
-        throw new Error(`Respuesta inesperada del servidor (no es JSON). Verifica la URL base.`);
+        const preview = text.slice(0, 100).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const envInfo = `Plataforma: ${platform}, URL: ${this.baseUrl}`;
+        console.error(`[TB Service] Respuesta no JSON de ${path} (${platform}): ${preview}`);
+        throw new Error(`Respuesta inesperada del servidor (no es JSON). ${envInfo}. Verifica que la URL no esté bloqueada.`);
       }
     }
   }
