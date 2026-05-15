@@ -1,34 +1,54 @@
-// Service Worker for Notifications
-self.addEventListener('push', function(event) {
-  const data = event.data?.json() ?? {};
-  const title = data.title ?? 'Nueva Alarma';
-  const options = {
-    body: data.body ?? 'Se ha detectado una nueva alerta.',
-    icon: '/logo.png',
-    badge: '/logo.png',
-    vibrate: [100, 50, 100],
-    data: data.url
-  };
+const CACHE_NAME = 'cumulo-tb-v1';
+const urlsToCache = [
+  '/',
+  '/index.html',
+  '/manifest.json'
+];
 
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-self.addEventListener('notificationclick', function(event) {
-  event.notification.close();
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    clients.openWindow('/')
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(urlsToCache))
   );
 });
 
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
-});
-
 self.addEventListener('fetch', (event) => {
-  // Necesario para que el navegador considere la app como PWA instalable
-  event.respondWith(fetch(event.request));
+  event.respondWith(
+    caches.match(event.request)
+      .then((response) => {
+        if (response) return response;
+        return fetch(event.request);
+      })
+  );
+});
+
+// Manejo de notificaciones nativas en segundo plano
+self.addEventListener('push', (event) => {
+  let data = { title: 'Alerta Nueva', body: 'Se ha detectado una alarma.' };
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: '/logo192.png',
+    badge: '/logo192.png',
+    vibrate: [100, 50, 100],
+    data: {
+      dateOfArrival: Date.now(),
+      primaryKey: 1
+    },
+    actions: [
+      { action: 'explore', title: 'Ver Alertas' },
+      { action: 'close', title: 'Cerrar' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
 });

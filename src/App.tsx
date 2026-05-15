@@ -15,13 +15,27 @@ import {
   Server,
   User,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Download,
+  BellRing
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { tbService } from './services/tbService';
 import { Alarm, Device, AlarmSeverity } from './types';
 import { cn, formatTimestamp, SEVERITY_COLORS } from './lib/utils';
 import { useNotifications } from './hooks/useNotifications';
+
+// Define BeforeInstallPromptEvent for TypeScript
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: string[];
+  readonly userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed';
+    platform: string;
+  }>;
+  prompt(): Promise<void>;
+}
+
+// ... rest of imports
 
 // --- Sub-components ---
 
@@ -123,16 +137,36 @@ export default function App() {
   const [criticalAlarm, setCriticalAlarm] = useState<Alarm | null>(null);
   const [lastDismissedTime, setLastDismissedTime] = useState<number>(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const { showNotification, requestPermission, permission } = useNotifications();
+
+  // PWA Install Prompt Handler
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   const DEFAULT_URL = 'http://cumuloingenieria.duckdns.org:9090';
 
   // Polling for updates (Simplification instead of full dynamic WS for now)
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
       // Pedimos todas las alarmas (sin filtrar por unack únicamente) y todos los dispositivos
       const [newAlarms, newDevices] = await Promise.all([
-        tbService.getAlarms(20), 
+        tbService.getAlarms(100), 
         tbService.getDevices(50)
       ]);
       
@@ -158,8 +192,14 @@ export default function App() {
 
       setAlarms(newAlarms);
       setDevices(newDevices);
-    } catch (error) {
-      console.error("Fetch error in background:", error);
+      setError(null);
+    } catch (error: any) {
+      if (isBackground) {
+        console.warn("Fetch error in background:", error.message);
+      } else {
+        console.error("Fetch error:", error);
+        setError(error.message || "Error al conectar con ThingsBoard");
+      }
     }
   }, [criticalAlarm, showNotification, lastDismissedTime]);
 
@@ -253,7 +293,7 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated) {
       fetchData();
-      const interval = setInterval(fetchData, 5000);
+      const interval = setInterval(() => fetchData(true), 5000);
       return () => clearInterval(interval);
     }
   }, [isAuthenticated, fetchData]);
@@ -261,20 +301,28 @@ export default function App() {
   const handleAck = async (id: string) => {
     try {
       await tbService.acknowledgeAlarm(id);
+    } catch (e: any) {
+      if (!e.message?.toLowerCase().includes('already acknowledged')) {
+        console.error("Ack error", e);
+      }
+    } finally {
       if (criticalAlarm?.id.id === id) setCriticalAlarm(null);
       fetchData();
-    } catch (e) {
-      console.error("Ack error", e);
     }
   };
 
   const handleClear = async (id: string) => {
     try {
       await tbService.clearAlarm(id);
+      // Automatically acknowledge after clearing to fully "close" the alarm
+      await tbService.acknowledgeAlarm(id).catch(() => {}); 
+    } catch (e: any) {
+      if (!e.message?.toLowerCase().includes('already cleared')) {
+        console.error("Clear error", e);
+      }
+    } finally {
       if (criticalAlarm?.id.id === id) setCriticalAlarm(null);
       fetchData();
-    } catch (e) {
-      console.error("Clear error", e);
     }
   };
 
@@ -445,7 +493,14 @@ export default function App() {
           />
           <NavItem 
             active={currentView === 'alarms'} 
-            icon={<Bell />} 
+            icon={
+              <div className="relative">
+                <Bell className="w-6 h-6" />
+                {alarms.filter(a => a.status.startsWith('ACTIVE')).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-600 rounded-full" />
+                )}
+              </div>
+            } 
             label="Alertas" 
             expanded={sidebarOpen} 
             onClick={() => handleViewChange('alarms')}
@@ -500,6 +555,48 @@ export default function App() {
         <div className="flex-1 overflow-y-auto p-8 space-y-8">
           {currentView === 'dashboard' && (
             <>
+              {/* App Install Banner */}
+              {deferredPrompt && (
+                <div className="mb-6 bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-emerald-500/20 rounded-xl">
+                      <Download className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-white">Instalar Aplicación Nativa</p>
+                      <p className="text-xs text-zinc-400">Acepta para tener acceso directo y notificaciones críticas.</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleInstallClick}
+                    className="whitespace-nowrap px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-lg shadow-emerald-600/20 active:scale-95 w-full sm:w-auto"
+                  >
+                    INSTALAR APP
+                  </button>
+                </div>
+              )}
+
+              {/* Notification Permission Banner */}
+              {permission === 'default' && (
+                <div className="mb-6 bg-blue-500/10 border border-blue-500/20 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-500/20 rounded-xl">
+                      <BellRing className="w-5 h-5 text-blue-500" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-white">Activar Alertas en el Móvil</p>
+                      <p className="text-xs text-zinc-400">Permite avisos inmediatos incluso con la pantalla bloqueada.</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => requestPermission()}
+                    className="whitespace-nowrap px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95 w-full sm:w-auto"
+                  >
+                    PERMITIR AHORA
+                  </button>
+                </div>
+              )}
+
               {/* Stats Overview */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <StatCard 
@@ -516,6 +613,35 @@ export default function App() {
                   color="text-emerald-500" 
                   onClick={() => handleViewChange('devices')}
                 />
+              </div>
+
+              <div className="grid grid-cols-1 gap-8">
+                <section className="space-y-6">
+                  <h3 className="text-xl font-bold flex items-center gap-3">
+                    <ShieldAlert className="w-6 h-6 text-red-500" />
+                    Alarmas Activas
+                  </h3>
+                  <div className="space-y-4">
+                    {alarms.filter(a => a.status.startsWith('ACTIVE')).length === 0 ? (
+                      <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-12 text-center">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-4 opacity-50" />
+                        <p className="text-zinc-500 font-medium">No hay alarmas activas en este momento.</p>
+                      </div>
+                    ) : (
+                      alarms
+                        .filter(a => a.status.startsWith('ACTIVE'))
+                        .slice(0, 10)
+                        .map(alarm => (
+                          <AlarmCard 
+                            key={alarm.id.id} 
+                            alarm={alarm} 
+                            onAck={handleAck} 
+                            onClear={handleClear} 
+                          />
+                        ))
+                    )}
+                  </div>
+                </section>
               </div>
             </>
           )}
@@ -619,6 +745,50 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Native App Section */}
+                <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
+                  <h4 className="font-bold flex items-center gap-2">
+                    <Download className="w-5 h-5 text-emerald-500" />
+                    Aplicación Nativa (Android/iOS)
+                  </h4>
+                  <div className="space-y-4">
+                    <p className="text-xs text-zinc-500 leading-relaxed">
+                      Transforma esta interfaz en una aplicación permanente en tu dispositivo. Esto permite:
+                    </p>
+                    <ul className="text-[10px] text-zinc-400 space-y-2 font-medium uppercase tracking-wider">
+                      <li className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                        Acceso directo desde el escritorio
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                        Interfaz a pantalla completa sin distracciones
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                        Prioridad en notificaciones del sistema
+                      </li>
+                    </ul>
+                    <button 
+                      onClick={handleInstallClick}
+                      disabled={!deferredPrompt}
+                      className={cn(
+                        "w-full py-4 rounded-2xl text-xs font-black transition-all active:scale-95",
+                        deferredPrompt 
+                          ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20" 
+                          : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                      )}
+                    >
+                      {deferredPrompt ? 'INSTALAR AHORA' : 'YA INSTALADA / NO SOPORTADA'}
+                    </button>
+                    {!deferredPrompt && (
+                      <p className="text-[10px] text-zinc-600 text-center uppercase font-black">
+                        Si ya está instalada, búscala en tu menú de aplicaciones de sistema.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
                   <h4 className="font-bold flex items-center gap-2">
                     <Bell className="w-5 h-5 text-blue-500" />
@@ -680,11 +850,13 @@ export default function App() {
 
 // --- Utils ---
 
-function AlarmCard({ alarm, onAck, onClear }: { 
-  alarm: Alarm; 
-  onAck: (id: string) => Promise<void>; 
+interface AlarmCardProps {
+  alarm: Alarm;
+  onAck: (id: string) => Promise<void>;
   onClear: (id: string) => Promise<void>;
-}) {
+}
+
+const AlarmCard: React.FC<AlarmCardProps> = ({ alarm, onAck, onClear }) => {
   const isAck = alarm.status === 'ACTIVE_ACK' || alarm.status === 'CLEARED_ACK';
   const isCleared = alarm.status === 'CLEARED_UNACK' || alarm.status === 'CLEARED_ACK';
 
@@ -706,8 +878,9 @@ function AlarmCard({ alarm, onAck, onClear }: {
         <div className="flex items-center gap-3 mb-1">
           <SeverityBadge severity={alarm.severity} />
           <span className={cn(
-            "px-2 py-0.5 rounded text-[10px] font-black tracking-widest",
-            isCleared ? "bg-emerald-500/10 text-emerald-500" : "bg-zinc-800 text-zinc-400"
+            "px-2 py-0.5 rounded text-[10px] font-black tracking-widest transition-colors",
+            isCleared ? "bg-emerald-500/10 text-emerald-500" : 
+            alarm.status === 'ACTIVE_UNACK' ? "bg-red-600 text-white animate-pulse" : "bg-orange-500/20 text-orange-500"
           )}>
             {statusLabel}
           </span>
@@ -748,7 +921,12 @@ function AlarmCard({ alarm, onAck, onClear }: {
   );
 }
 
-function DeviceRow({ device, isLast }: { device: Device; isLast: boolean }) {
+interface DeviceRowProps {
+  device: Device;
+  isLast: boolean;
+}
+
+const DeviceRow: React.FC<DeviceRowProps> = ({ device, isLast }) => {
   return (
     <div className={cn(
       "p-4 flex items-center justify-between hover:bg-zinc-800 transition-colors cursor-pointer group",
@@ -779,13 +957,15 @@ function DeviceRow({ device, isLast }: { device: Device; isLast: boolean }) {
   );
 }
 
-function NavItem({ icon, label, active, expanded, onClick }: { 
-  icon: any; 
-  label: string; 
-  active?: boolean; 
+interface NavItemProps {
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
   expanded: boolean;
   onClick: () => void;
-}) {
+}
+
+const NavItem: React.FC<NavItemProps> = ({ icon, label, active, expanded, onClick }) => {
   return (
     <button 
       onClick={onClick}
@@ -800,7 +980,15 @@ function NavItem({ icon, label, active, expanded, onClick }: {
   );
 }
 
-function StatCard({ icon, label, value, color, onClick }: { icon: any; label: string; value: string | number; color: string; onClick?: () => void }) {
+interface StatCardProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  color: string;
+  onClick?: () => void;
+}
+
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color, onClick }) => {
   return (
     <div 
       onClick={onClick}

@@ -46,7 +46,7 @@ class ThingsBoardService {
     const contentType = response.headers.get('content-type');
     
     if (!response.ok) {
-      let errorMessage = 'Error de Servidor';
+      let errorMessage = `Error de Servidor (${response.status})`;
       try {
         if (contentType?.includes('application/json')) {
           const errorData = await response.json();
@@ -54,10 +54,15 @@ class ThingsBoardService {
         } else {
           const text = await response.text();
           errorMessage = text.slice(0, 150) || `Error ${response.status}`;
+          // If it's HTML but 401/403, it's likely a login redirect
+          if (text.includes('<!doctype html>') && (response.status === 401 || response.status === 403)) {
+            errorMessage = "Sesión expirada o no autorizada. Por favor, reingresa.";
+          }
         }
       } catch (e) {
         errorMessage = `Error ${response.status}`;
       }
+      console.error(`[TB Service Error] ${path}: ${errorMessage}`);
       throw new Error(errorMessage);
     }
 
@@ -65,8 +70,14 @@ class ThingsBoardService {
       return response.json();
     } else {
       const text = await response.text();
-      const preview = text.slice(0, 50).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      throw new Error(`Respuesta inesperada (no es JSON). Inicio de respuesta: "${preview}..."`);
+      // Verificamos si realmente no es un JSON por accidente (a veces content-type falta)
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        const preview = text.slice(0, 70).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        console.error(`[TB Service] Respuesta no JSON de ${path}: ${preview}`);
+        throw new Error(`Respuesta inesperada del servidor (no es JSON). Verifica la URL base.`);
+      }
     }
   }
 
