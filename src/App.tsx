@@ -172,8 +172,11 @@ export default function App() {
       
       console.log(`Datos actualizados: ${newAlarms.length} alarmas, ${newDevices.length} dispositivos`);
 
-      // Check for new critical alarms
-      const latestCritical = newAlarms.find(a => a.severity === 'CRITICAL' && a.status.includes('UNACK'));
+      // Check for new critical alarms (Must be ACTIVE and CRITICAL)
+      const latestCritical = newAlarms.find(a => 
+        (a.severity === 'CRITICAL' || a.severity === 'MAJOR') && 
+        a.status.startsWith('ACTIVE')
+      );
       
       // Delay de 10 segundos antes de volver a mostrar una alarma silenciada
       const waitTimePassed = Date.now() - lastDismissedTime > 10000;
@@ -192,13 +195,13 @@ export default function App() {
 
       setAlarms(newAlarms);
       setDevices(newDevices);
-      setError(null);
+      setErrorMessage(null);
     } catch (error: any) {
       if (isBackground) {
         console.warn("Fetch error in background:", error.message);
       } else {
         console.error("Fetch error:", error);
-        setError(error.message || "Error al conectar con ThingsBoard");
+        setErrorMessage(error.message || "Error al conectar con ThingsBoard");
       }
     }
   }, [criticalAlarm, showNotification, lastDismissedTime]);
@@ -233,7 +236,7 @@ export default function App() {
       }
 
       setIsAuthenticated(true);
-      requestPermission();
+      setTimeout(() => requestPermission(), 1000);
     } catch (err: any) {
       console.error("Login Error:", err);
       setErrorMessage(err.message || "Error al iniciar sesión.");
@@ -300,6 +303,9 @@ export default function App() {
 
   const handleAck = async (id: string) => {
     try {
+      // Optimistic ACK
+      setAlarms(prev => prev.map(a => a.id.id === id ? { ...a, status: a.status.replace('UNACK', 'ACK') } : a));
+      
       await tbService.acknowledgeAlarm(id);
     } catch (e: any) {
       if (!e.message?.toLowerCase().includes('already acknowledged')) {
@@ -313,16 +319,38 @@ export default function App() {
 
   const handleClear = async (id: string) => {
     try {
+      // Optimistic update: mark as cleared locally to remove from list immediately
+      setAlarms(prev => prev.map(a => a.id.id === id ? { ...a, status: 'CLEARED_ACK' } : a));
+      if (criticalAlarm?.id.id === id) setCriticalAlarm(null);
+
       await tbService.clearAlarm(id);
       // Automatically acknowledge after clearing to fully "close" the alarm
       await tbService.acknowledgeAlarm(id).catch(() => {}); 
     } catch (e: any) {
       if (!e.message?.toLowerCase().includes('already cleared')) {
         console.error("Clear error", e);
+        alert(`Error al resolver: ${e.message}`);
       }
     } finally {
-      if (criticalAlarm?.id.id === id) setCriticalAlarm(null);
       fetchData();
+    }
+  };
+
+  const handleRequestPermission = async () => {
+    try {
+      console.log("Solicitando permisos de notificación...");
+      const result = await requestPermission();
+      console.log("Resultado de solicitud de permisos:", result);
+      if (result === 'granted') {
+        showNotification('¡Notificaciones Activadas!', {
+          body: 'Ahora recibirás alertas críticas de Cumulo Ingenieria.'
+        });
+      } else if (result === 'denied') {
+        alert("Las notificaciones han sido bloqueadas. Por favor, habilítalas manualmente en los ajustes de tu navegador o dispositivo.");
+      }
+    } catch (e: any) {
+      console.error("Error al solicitar permisos:", e);
+      alert("Hubo un problema al solicitar los permisos de notificación.");
     }
   };
 
@@ -589,7 +617,7 @@ export default function App() {
                     </div>
                   </div>
                   <button 
-                    onClick={() => requestPermission()}
+                    onClick={handleRequestPermission}
                     className="whitespace-nowrap px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl transition-all shadow-lg shadow-blue-600/20 active:scale-95 w-full sm:w-auto"
                   >
                     PERMITIR AHORA
@@ -619,17 +647,17 @@ export default function App() {
                 <section className="space-y-6">
                   <h3 className="text-xl font-bold flex items-center gap-3">
                     <ShieldAlert className="w-6 h-6 text-red-500" />
-                    Alarmas Activas
+                    Alarmas Pendientes
                   </h3>
                   <div className="space-y-4">
-                    {alarms.filter(a => a.status.startsWith('ACTIVE')).length === 0 ? (
+                    {alarms.filter(a => !a.status.startsWith('CLEARED') && (a.status.includes('ACTIVE') || a.status.includes('UNACK'))).length === 0 ? (
                       <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-12 text-center">
                         <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-4 opacity-50" />
-                        <p className="text-zinc-500 font-medium">No hay alarmas activas en este momento.</p>
+                        <p className="text-zinc-500 font-medium">No hay alarmas activas o sin reconocer en este momento.</p>
                       </div>
                     ) : (
                       alarms
-                        .filter(a => a.status.startsWith('ACTIVE'))
+                        .filter(a => !a.status.startsWith('CLEARED') && (a.status.includes('ACTIVE') || a.status.includes('UNACK')))
                         .slice(0, 10)
                         .map(alarm => (
                           <AlarmCard 
@@ -804,7 +832,7 @@ export default function App() {
                           <p className="text-xs text-zinc-500">Alertas críticas incluso en segundo plano o celular bloqueado.</p>
                        </div>
                        <button 
-                          onClick={() => requestPermission()}
+                          onClick={handleRequestPermission}
                           className={cn(
                             "w-12 h-6 rounded-full relative transition-colors",
                             permission === 'granted' ? "bg-emerald-600" : "bg-zinc-700"

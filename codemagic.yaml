@@ -18,11 +18,13 @@ workflows:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
-          # Habilitar tráfico HTTP (Cleartext) - Versión compatible
+          # Habilitar tráfico HTTP (Cleartext) y Permisos de Notificación
           if [[ "$OSTYPE" == "darwin"* ]]; then
             sed -i '' 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
+            sed -i '' 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
           else
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
+            sed -i 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
           fi
           npx cap sync android
       - name: Build Android Native

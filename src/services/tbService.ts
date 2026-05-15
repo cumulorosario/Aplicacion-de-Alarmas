@@ -5,6 +5,8 @@ class ThingsBoardService {
   private baseUrl: string = '';
   private token: string | null = null;
   private tenantId: string | null = null;
+  private customerId: string | null = null;
+  private authority: string | null = null;
   private socket: WebSocket | null = null;
 
   setBaseUrl(url: string) {
@@ -119,22 +121,32 @@ class ThingsBoardService {
     });
     this.token = data.token;
     
-    // Fetch current user info to get tenantId
+    // Fetch current user info to get context
     try {
       const user = await this.fetchApi('/api/auth/user');
+      this.authority = user.authority;
       if (user && user.tenantId) {
         this.tenantId = user.tenantId.id;
-        console.log("Tenant ID identificado:", this.tenantId);
       }
+      if (user && user.customerId && user.customerId.id !== '13814000-1dd2-11b2-8080-808080808080') {
+        this.customerId = user.customerId.id;
+      }
+      console.log(`Auth context: ${this.authority}, Tenant: ${this.tenantId}, Customer: ${this.customerId}`);
     } catch (e) {
-      console.warn("No se pudo obtener el ID del tenant automáticamente.");
+      console.warn("No se pudo obtener el contexto del usuario automáticamente.");
     }
 
     return data;
   }
 
   async getDevices(pageSize = 100): Promise<Device[]> {
-    const data = await this.fetchApi(`/api/tenant/devices?pageSize=${pageSize}&page=0`);
+    let endpoint = `/api/tenant/devices?pageSize=${pageSize}&page=0`;
+    
+    if (this.authority === 'CUSTOMER_USER' && this.customerId) {
+      endpoint = `/api/customer/${this.customerId}/devices?pageSize=${pageSize}&page=0`;
+    }
+
+    const data = await this.fetchApi(endpoint);
     const devices: Device[] = data.data || [];
     
     if (devices.length === 0) return [];
@@ -166,42 +178,81 @@ class ThingsBoardService {
 
   async getAlarms(pageSize = 50, status?: string): Promise<Alarm[]> {
     const query = status ? `&status=${status}` : '';
-    
-    // Primero intentamos obtener alarmas del tenant (por si acaso hay alguna propagada)
     let allAlarms: Alarm[] = [];
+
+    // Prioridad 1: Búsqueda General (si el endpoint existe y está permitido)
+    try {
+      const generalAlarms = await this.fetchApi(`/api/alarms?pageSize=${pageSize}&page=0${query}`);
+      if (generalAlarms && generalAlarms.data) {
+        allAlarms = [...generalAlarms.data];
+        console.log(`[TB Service] Alarmas Generales encontradas: ${allAlarms.length}`);
+      }
+    } catch (e) {
+      console.log("[TB Service] /api/alarms no disponible o denegado, probando entidades específicas...");
+    }
+
+    // Prioridad 2: Buscar por Tenant (Admin)
     if (this.tenantId) {
       try {
         const tenantAlarms = await this.fetchApi(`/api/alarm/TENANT/${this.tenantId}?pageSize=${pageSize}&page=0${query}`);
-        if (tenantAlarms.data) allAlarms = [...tenantAlarms.data];
+        if (tenantAlarms && tenantAlarms.data) {
+          tenantAlarms.data.forEach((a: Alarm) => {
+            if (!allAlarms.find(prev => prev.id.id === a.id.id)) {
+              allAlarms.push(a);
+            }
+          });
+          console.log(`[TB Service] Total alarmas tras busqueda Tenant: ${allAlarms.length}`);
+        }
       } catch (e) {
-        console.warn("Error fetching tenant alarms");
+        console.warn("Error fetching tenant alarms", e);
       }
     }
 
-    // Como vimos que algunas no se propagan, buscamos específicamente en los dispositivos activos
-    try {
-      const devices = await this.getDevices(20);
-      const activeDevices = devices.filter(d => d.online || d.name === 'ESP32-IO'); // Priorizamos el ESP32-IO
-      
-      const deviceAlarmsPromises = activeDevices.map(async (d) => {
-        try {
-          const res = await this.fetchApi(`/api/alarm/DEVICE/${d.id.id}?pageSize=10&page=0${query}`);
-          return res.data || [];
-        } catch {
-          return [];
+    // Prioridad 3: Buscar por Customer
+    if (this.customerId) {
+      try {
+        const customerAlarms = await this.fetchApi(`/api/alarm/CUSTOMER/${this.customerId}?pageSize=${pageSize}&page=0${query}`);
+        if (customerAlarms && customerAlarms.data) {
+          customerAlarms.data.forEach((a: Alarm) => {
+            if (!allAlarms.find(prev => prev.id.id === a.id.id)) {
+              allAlarms.push(a);
+            }
+          });
+          console.log(`[TB Service] Total alarmas tras busqueda Customer: ${allAlarms.length}`);
         }
-      });
-      
-      const results = await Promise.all(deviceAlarmsPromises);
-      results.forEach(alarms => {
-        alarms.forEach((alarm: Alarm) => {
-          if (!allAlarms.find(a => a.id.id === alarm.id.id)) {
-            allAlarms.push(alarm);
+      } catch (e) {
+        console.warn("Error fetching customer alarms", e);
+      }
+    }
+
+    // Prioridad 4: Búsqueda exhaustiva en los dispositivos si allAlarms sigue vacio o es muy corto
+    if (allAlarms.length < 5) {
+      console.log("[TB Service] Pocas alarmas encontradas, iniciando búsqueda por dispositivo fallback...");
+      try {
+        const devices = await this.getDevices(30);
+        const deviceAlarmsPromises = devices.map(async (d) => {
+          try {
+            const res = await this.fetchApi(`/api/alarm/DEVICE/${d.id.id}?pageSize=10&page=0${query}`);
+            return res.data || [];
+          } catch {
+            return [];
           }
         });
-      });
-    } catch (e) {
-      console.warn("Error fetching per-device alarms");
+        
+        const results = await Promise.all(deviceAlarmsPromises);
+        results.forEach(alarms => {
+          if (alarms && Array.isArray(alarms)) {
+            alarms.forEach((alarm: Alarm) => {
+              if (!allAlarms.find(a => a.id.id === alarm.id.id)) {
+                allAlarms.push(alarm);
+              }
+            });
+          }
+        });
+        console.log(`[TB Service] Total alarmas tras búsqueda por dispositivos: ${allAlarms.length}`);
+      } catch (e) {
+        console.warn("Error en búsqueda por dispositivo fallback", e);
+      }
     }
 
     return allAlarms.sort((a, b) => b.createdTime - a.createdTime);
@@ -253,17 +304,16 @@ class ThingsBoardService {
   }
 
   subscribeToAlarms(cmdId: number) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN && (this.tenantId || this.customerId)) {
       const msg = {
         alarmSubCmds: [
           {
-            entityType: 'TENANT',
-            entityId: 'tenant-id', // This needs careful config or fetching tenant id
+            entityType: this.authority === 'CUSTOMER_USER' ? 'CUSTOMER' : 'TENANT',
+            entityId: this.authority === 'CUSTOMER_USER' ? this.customerId : this.tenantId,
             cmdId
           }
         ]
       };
-      // Note: Tenant ID is usually fetched after login from /api/auth/user
       this.socket.send(JSON.stringify(msg));
     }
   }
