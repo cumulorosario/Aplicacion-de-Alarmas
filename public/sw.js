@@ -13,8 +13,13 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignorar llamadas a la API para que no pasen por el cache del SW
+  // Ignorar COMPLETAMENTE llamadas a la API para que no pasen por el logic del SW
   if (event.request.url.includes('/api/')) {
+    return;
+  }
+
+  // Ignorar llamadas a dominios externos (ThingsBoard directo)
+  if (!event.request.url.startsWith(self.location.origin)) {
     return;
   }
 

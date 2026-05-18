@@ -68,6 +68,7 @@ async function startServer() {
   }
 
   // Proxy endpoint to bypass Mixed Content (HTTP on HTTPS)
+  app.options("/api/proxy", cors()); // Explicitly handle OPTIONS for proxy
   app.all("/api/proxy", async (req: express.Request, res: express.Response) => {
     const targetUrlRaw = req.query.url as string;
     
@@ -81,14 +82,19 @@ async function startServer() {
       
       console.log(`[Proxy] INICIO: ${targetMethod} -> ${targetUrl} (Original: ${targetUrlRaw})`);
       
+      const axiosHeaders: Record<string, string> = {
+        'Accept': 'application/json',
+        'User-Agent': 'TitanBoard-Industrial/1.0',
+      };
+
+      if (targetMethod !== 'GET' && targetMethod !== 'HEAD') {
+        axiosHeaders['Content-Type'] = 'application/json';
+      }
+
       const axiosConfig: any = {
         method: targetMethod as any,
         url: targetUrl,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'TitanBoard-Industrial/1.0',
-        },
+        headers: axiosHeaders,
         timeout: 25000,
         maxRedirects: 0,
         validateStatus: () => true,
@@ -101,7 +107,8 @@ async function startServer() {
         axiosConfig.headers['Host'] = targetHost;
       }
 
-      if (targetMethod !== 'GET' && targetMethod !== 'HEAD') {
+      if (targetMethod !== 'GET' && targetMethod !== 'HEAD' && req.body && Object.keys(req.body).length > 0) {
+        // If it's a POST/PUT with body
         axiosConfig.data = req.body;
       }
 
@@ -110,20 +117,14 @@ async function startServer() {
       }
 
       const response = await axios(axiosConfig);
-
-      console.log(`[Proxy] FIN: Status ${response.status} | URL: ${targetUrl}`);
-      
-      const dataString = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
-      const isHtml = dataString.toLowerCase().includes('<!doctype html>') || dataString.toLowerCase().includes('<html');
-
-      if (isHtml && response.status === 200 && targetUrlRaw.includes('/api/')) {
-        console.warn(`[Proxy] Redirección web detectada (200 OK + HTML) para: ${targetUrlRaw}`);
-        // No bloqueamos agresivamente, pero informamos en los logs
-      }
-
+      console.log(`[Proxy Successful] Status: ${response.status} from ${targetUrl}`);
       res.status(response.status).send(response.data);
     } catch (error: any) {
-      console.error(`[Proxy Fatal]: ${error.message} for ${targetUrlRaw}`);
+      if (error.response) {
+        console.error(`[Proxy Error Response] ${error.response.status} from ${targetUrlRaw}`);
+        return res.status(error.response.status).send(error.response.data);
+      }
+      console.error(`[Proxy Fatal Network]: ${error.message} for ${targetUrlRaw}`);
       res.status(502).json({ 
         message: "Error de conexión con el servidor externo. Verifica si el servidor está en línea.", 
         details: error.message,

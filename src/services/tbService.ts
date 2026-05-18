@@ -40,8 +40,8 @@ class ThingsBoardService {
     } else if (this.baseUrl.startsWith('http')) {
       // For web based apps, always use proxy if calling an external absolute URL
       // to avoid Mixed Content (if app is HTTPS and TB is HTTP) and CORS issues.
-      const proxyPath = `/api/proxy?url=${encodeURIComponent(this.baseUrl + path)}`;
-      finalUrl = window.location.origin + proxyPath;
+      // Use a relative path to ensure same-origin fetch and avoid AIS iframe origin issues.
+      finalUrl = `/api/proxy?url=${encodeURIComponent(this.baseUrl + path)}`;
     }
 
     console.log(`[TB Service] Fetching: ${options.method || 'GET'} ${finalUrl}`);
@@ -81,6 +81,12 @@ class ThingsBoardService {
 
     try {
       const response = await fetch(finalUrl, { ...options, headers });
+      
+      // If we got a 502 from our own proxy, it means the target TB server is unreachable
+      if (response.status === 502) {
+        throw new Error("El servidor ThingsBoard no responde (Error 502 via Proxy). Verifica que la URL sea correcta y accesible.");
+      }
+
       const contentType = response.headers.get('content-type');
       
       if (!response.ok) {
