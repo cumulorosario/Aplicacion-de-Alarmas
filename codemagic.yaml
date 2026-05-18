@@ -54,48 +54,156 @@ workflows:
           }
           EOF
 
-          # Crear AlarmService.java
+          # Crear AlarmService.java con Polling de Background
           cat <<EOF > $PACKAGE_PATH/AlarmService.java
           package com.cumulo.ingenieria.vigia;
           import android.app.Notification;
           import android.app.NotificationChannel;
           import android.app.NotificationManager;
+          import android.app.PendingIntent;
           import android.app.Service;
           import android.content.Intent;
+          import android.content.SharedPreferences;
           import android.content.pm.ServiceInfo;
           import android.os.Build;
           import android.os.IBinder;
+          import android.util.Log;
           import androidx.core.app.NotificationCompat;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          import java.io.BufferedReader;
+          import java.io.InputStreamReader;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.util.Timer;
+          import java.util.TimerTask;
 
           public class AlarmService extends Service {
               private static final String CHANNEL_ID = "VigiaServiceChannel";
+              private static final String ALARM_CHANNEL_ID = "VigiaAlarmChannel";
               private static final int NOTIFICATION_ID = 1;
+              private Timer mTimer;
+              private String mLastAlarmId = "";
 
               @Override
               public void onCreate() {
                   super.onCreate();
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      NotificationChannel serviceChannel = new NotificationChannel(
-                          CHANNEL_ID, "Vigia Service", NotificationManager.IMPORTANCE_LOW);
-                      NotificationManager manager = getSystemService(NotificationManager.class);
-                      if (manager != null) {
-                          manager.createNotificationChannel(serviceChannel);
-                      }
-                  }
+                  createNotificationChannels();
                   
-                  Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                      .setContentTitle("Vigia Industrial")
-                      .setContentText("Servicio de monitoreo activo")
-                      .setSmallIcon(android.R.drawable.ic_dialog_info)
-                      .setPriority(NotificationCompat.PRIORITY_LOW)
-                      .setOngoing(true)
-                      .build();
-
+                  Notification notification = createForegroundNotification();
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                       startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                   } else {
                       startForeground(NOTIFICATION_ID, notification);
                   }
+                  
+                  startPolling();
+              }
+
+              private void createNotificationChannels() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel serviceChannel = new NotificationChannel(
+                          CHANNEL_ID, "Vigia Service", NotificationManager.IMPORTANCE_LOW);
+                      
+                      NotificationChannel alarmChannel = new NotificationChannel(
+                          ALARM_CHANNEL_ID, "Alertas Críticas", NotificationManager.IMPORTANCE_HIGH);
+                      alarmChannel.setDescription("Notificaciones para alarmas críticas industriales");
+                      alarmChannel.enableVibration(true);
+                      alarmChannel.setVibrationPattern(new long[]{0, 500, 200, 500});
+
+                      NotificationManager manager = getSystemService(NotificationManager.class);
+                      if (manager != null) {
+                          manager.createNotificationChannel(serviceChannel);
+                          manager.createNotificationChannel(alarmChannel);
+                      }
+                  }
+              }
+
+              private Notification createForegroundNotification() {
+                  return new NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setContentTitle("Vigia Industrial")
+                      .setContentText("Servicio de monitoreo activo en segundo plano")
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .setPriority(NotificationCompat.PRIORITY_LOW)
+                      .setOngoing(true)
+                      .build();
+              }
+
+              private void startPolling() {
+                  if (mTimer != null) mTimer.cancel();
+                  mTimer = new Timer();
+                  mTimer.scheduleAtFixedRate(new TimerTask() {
+                      @Override
+                      public void run() {
+                          checkAlarms();
+                      }
+                  }, 5000, 30000); // 5s wait, then every 30s
+              }
+
+              private void checkAlarms() {
+                  try {
+                      SharedPreferences prefs = getSharedPreferences("CapacitorStorage", MODE_PRIVATE);
+                      String token = prefs.getString("tb_token", "");
+                      String baseUrl = prefs.getString("tb_base_url", "");
+                      
+                      if (token.isEmpty() || baseUrl.isEmpty()) {
+                          Log.d("VigiaService", "No credentials found in Preferences yet.");
+                          return;
+                      }
+
+                      String urlString = baseUrl + "/api/alarms?pageSize=5&page=0&status=ACTIVE_UNACK";
+                      URL url = new URL(urlString);
+                      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                      conn.setRequestMethod("GET");
+                      conn.setRequestProperty("X-Authorization", "Bearer " + token);
+                      conn.setConnectTimeout(15000);
+                      
+                      int responseCode = conn.getResponseCode();
+                      if (responseCode == 200) {
+                          BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                          StringBuilder response = new StringBuilder();
+                          String inputLine;
+                          while ((inputLine = in.readLine()) != null) response.append(inputLine);
+                          in.close();
+
+                          JSONObject json = new JSONObject(response.toString());
+                          JSONArray data = json.getJSONArray("data");
+                          
+                          if (data.length() > 0) {
+                              JSONObject alarm = data.getJSONObject(0);
+                              String alarmId = alarm.getJSONObject("id").getString("id");
+                              if (!alarmId.equals(mLastAlarmId)) {
+                                  mLastAlarmId = alarmId;
+                                  showAlarmNotification(alarm.getString("originatorName"), alarm.getString("type"));
+                              }
+                          }
+                      }
+                      conn.disconnect();
+                  } catch (Exception e) {
+                      Log.e("VigiaService", "Error checking alarms: " + e.getMessage());
+                  }
+              }
+
+              private void showAlarmNotification(String device, String type) {
+                  NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                  
+                  Intent notificationIntent = new Intent(this, MainActivity.class);
+                  PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 
+                      PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
+
+                  Notification notification = new NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
+                      .setContentTitle("ALERTA CRÍTICA: " + device)
+                      .setContentText(type.replace("_", " "))
+                      .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                      .setPriority(NotificationCompat.PRIORITY_HIGH)
+                      .setCategory(NotificationCompat.CATEGORY_ALARM)
+                      .setAutoCancel(true)
+                      .setFullScreenIntent(pendingIntent, true)
+                      .setContentIntent(pendingIntent)
+                      .setDefaults(Notification.DEFAULT_ALL)
+                      .build();
+
+                  manager.notify(2, notification);
               }
 
               @Override
@@ -108,6 +216,81 @@ workflows:
           }
           EOF
 
+          # Crear AlarmActivity.java (Pantalla completa de alarma)
+          cat <<EOF > $PACKAGE_PATH/AlarmActivity.java
+          package com.cumulo.ingenieria.vigia;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.WindowManager;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          import android.view.Gravity;
+          import android.graphics.Color;
+
+          public class AlarmActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  
+                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                          | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                          | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setGravity(Gravity.CENTER);
+                  layout.setBackgroundColor(Color.RED);
+                  layout.setPadding(50, 50, 50, 50);
+
+                  TextView tvTitle = new TextView(this);
+                  tvTitle.setText("ALARMA CRÍTICA");
+                  tvTitle.setTextSize(34);
+                  tvTitle.setTextColor(Color.WHITE);
+                  tvTitle.setGravity(Gravity.CENTER);
+                  layout.addView(tvTitle);
+
+                  TextView tvInfo = new TextView(this);
+                  tvInfo.setText("Se ha detectado una anomalía en el sistema.");
+                  tvInfo.setTextColor(Color.WHITE);
+                  tvInfo.setGravity(Gravity.CENTER);
+                  tvInfo.setPadding(0, 20, 0, 50);
+                  layout.addView(tvInfo);
+
+                  Button btnClose = new Button(this);
+                  btnClose.setText("SILENCIAR Y ABRIR APP");
+                  btnClose.setOnClickListener(v -> {
+                      finish();
+                  });
+                  layout.addView(btnClose);
+
+                  setContentView(layout);
+              }
+          }
+          EOF
+
+          # Personalizar MainActivity.java
+          cat <<EOF > $PACKAGE_PATH/MainActivity.java
+          package com.cumulo.ingenieria.vigia;
+          import android.os.Bundle;
+          import android.content.Intent;
+          import android.os.Build;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  Intent serviceIntent = new Intent(this, AlarmService.class);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      startForegroundService(serviceIntent);
+                  } else {
+                      startService(serviceIntent);
+                  }
+              }
+          }
+          EOF
+
           # Parchear AndroidManifest.xml
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -115,13 +298,13 @@ workflows:
             sed -i '' 's/<activity/<activity android:showWhenLocked="true" android:turnScreenOn="true"/g' $MANIFEST
             # Insertar permisos
             sed -i '' 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.VIBRATE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" \/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" \/>\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' $MANIFEST
-            # Insertar Service y Receiver antes de cierre de application
-            sed -i '' 's/<\/application>/    <service android:name=".AlarmService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" \/><\/intent-filter><\/receiver>\n<\/application>/g' $MANIFEST
+            # Insertar Service, Activity y Receiver antes de cierre de application
+            sed -i '' 's/<\/application>/    <service android:name=".AlarmService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    <activity android:name=".AlarmActivity" android:showWhenLocked="true" android:turnScreenOn="true" android:excludeFromRecents="true" android:exported="false" \/>\n    <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" \/><\/intent-filter><\/receiver>\n<\/application>/g' $MANIFEST
           else
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' $MANIFEST
             sed -i 's/<activity/<activity android:showWhenLocked="true" android:turnScreenOn="true"/g' $MANIFEST
             sed -i 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.VIBRATE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" \/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" \/>\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' $MANIFEST
-            sed -i 's/<\/application>/    <service android:name=".AlarmService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" \/><\/intent-filter><\/receiver>\n<\/application>/g' $MANIFEST
+            sed -i 's/<\/application>/    <service android:name=".AlarmService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    <activity android:name=".AlarmActivity" android:showWhenLocked="true" android:turnScreenOn="true" android:excludeFromRecents="true" android:exported="false" \/>\n    <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" \/><\/intent-filter><\/receiver>\n<\/application>/g' $MANIFEST
           fi
           npx cap sync android
       - name: Build Android Native

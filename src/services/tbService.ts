@@ -1,5 +1,6 @@
 import { Alarm, AlarmStatus, AuthResponse, Device, TelemetryData } from '../types';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 
 class ThingsBoardService {
   private baseUrl: string = '';
@@ -8,6 +9,10 @@ class ThingsBoardService {
   private customerId: string | null = null;
   private authority: string | null = null;
   private socket: WebSocket | null = null;
+
+  constructor() {
+    this.loadSession();
+  }
 
   setBaseUrl(url: string) {
     this.baseUrl = url.replace(/\/+$/, '');
@@ -19,6 +24,34 @@ class ThingsBoardService {
 
   setToken(token: string) {
     this.token = token;
+  }
+
+  private async saveSession() {
+    try {
+      await Preferences.set({ key: 'tb_token', value: this.token || '' });
+      await Preferences.set({ key: 'tb_base_url', value: this.baseUrl || '' });
+      await Preferences.set({ key: 'tb_tenant_id', value: this.tenantId || '' });
+      await Preferences.set({ key: 'tb_authority', value: this.authority || '' });
+    } catch (e) {
+      console.warn("Could not save session to preferences", e);
+    }
+  }
+
+  private async loadSession() {
+    try {
+      const { value: token } = await Preferences.get({ key: 'tb_token' });
+      const { value: url } = await Preferences.get({ key: 'tb_base_url' });
+      const { value: tenantId } = await Preferences.get({ key: 'tb_tenant_id' });
+      const { value: authority } = await Preferences.get({ key: 'tb_authority' });
+      
+      if (token) this.token = token;
+      if (url) this.baseUrl = url;
+      if (tenantId) this.tenantId = tenantId;
+      if (authority) this.authority = authority;
+      console.log("[TB Service] Session loaded from preferences");
+    } catch (e) {
+      console.warn("Could not load session from preferences", e);
+    }
   }
 
   private async fetchApi(path: string, options: RequestInit = {}) {
@@ -139,6 +172,7 @@ class ThingsBoardService {
       body: JSON.stringify({ username, password }),
     });
     this.token = data.token;
+    await this.saveSession();
     
     // Fetch current user info to get context
     try {
@@ -151,6 +185,7 @@ class ThingsBoardService {
         this.customerId = user.customerId.id;
       }
       console.log(`Auth context: ${this.authority}, Tenant: ${this.tenantId}, Customer: ${this.customerId}`);
+      await this.saveSession();
     } catch (e) {
       console.warn("No se pudo obtener el contexto del usuario automáticamente.");
     }
