@@ -18,15 +18,94 @@ workflows:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
-          # Habilitar tráfico HTTP, Notificaciones, Auto-Inicio y Alarmas Críticas
+          
+          # Definir el paquete y ruta
+          PACKAGE_PATH="android/app/src/main/java/com/cumulo/ingenieria/vigia"
+          mkdir -p $PACKAGE_PATH
+
+          # Crear BootReceiver.java
+          cat <<EOF > $PACKAGE_PATH/BootReceiver.java
+          package com.cumulo.ingenieria.vigia;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.os.Build;
+          public class BootReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+                      // Iniciar Servicio de Primer Plano
+                      Intent serviceIntent = new Intent(context, AlarmService.class);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          context.startForegroundService(serviceIntent);
+                      } else {
+                          context.startService(serviceIntent);
+                      }
+                      // Intentar iniciar la actividad principal (requiere permiso de inicio automático en algunos equipos)
+                      Intent activityIntent = new Intent(context, MainActivity.class);
+                      activityIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                      try {
+                          context.startActivity(activityIntent);
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # Crear AlarmService.java
+          cat <<EOF > $PACKAGE_PATH/AlarmService.java
+          package com.cumulo.ingenieria.vigia;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.Service;
+          import android.content.Intent;
+          import android.os.Build;
+          import android.os.IBinder;
+          import androidx.core.app.NotificationCompat;
+          public class AlarmService extends Service {
+              private static final String CHANNEL_ID = "VigiaServiceChannel";
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel serviceChannel = new NotificationChannel(
+                          CHANNEL_ID, "Vigia Service", NotificationManager.IMPORTANCE_LOW);
+                      NotificationManager manager = getSystemService(NotificationManager.class);
+                      manager.createNotificationChannel(serviceChannel);
+                  }
+                  Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setContentTitle("Vigia Industrial")
+                      .setContentText("Monitoreo en ejecución")
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .build();
+                  startForeground(1, notification);
+              }
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  return START_STICKY;
+              }
+              @Override
+              public IBinder onBind(Intent intent) { return null; }
+          }
+          EOF
+
+          # Parchear AndroidManifest.xml
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
-            sed -i '' 's/<activity/<activity android:showWhenLocked="true" android:turnScreenOn="true"/g' android/app/src/main/AndroidManifest.xml
-            sed -i '' 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" \/>\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
+            sed -i '' 's/<application/<application android:usesCleartextTraffic="true"/g' $MANIFEST
+            sed -i '' 's/<activity/<activity android:showWhenLocked="true" android:turnScreenOn="true"/g' $MANIFEST
+            # Insertar permisos
+            sed -i '' 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.VIBRATE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" \/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" \/>\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' $MANIFEST
+            # Insertar Service y Receiver antes de cierre de application
+            sed -i '' 's/<\/application>/    <service android:name=".AlarmService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" \/><\/intent-filter><\/receiver>\n<\/application>/g' $MANIFEST
           else
-            sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
-            sed -i 's/<activity/<activity android:showWhenLocked="true" android:turnScreenOn="true"/g' android/app/src/main/AndroidManifest.xml
-            sed -i 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" \/>\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' android/app/src/main/AndroidManifest.xml
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' $MANIFEST
+            sed -i 's/<activity/<activity android:showWhenLocked="true" android:turnScreenOn="true"/g' $MANIFEST
+            sed -i 's/<\/manifest>/    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" \/>\n    <uses-permission android:name="android.permission.WAKE_LOCK" \/>\n    <uses-permission android:name="android.permission.VIBRATE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" \/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" \/>\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" \/>\n<\/manifest>/g' $MANIFEST
+            sed -i 's/<\/application>/    <service android:name=".AlarmService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" \/><\/intent-filter><\/receiver>\n<\/application>/g' $MANIFEST
           fi
           npx cap sync android
       - name: Build Android Native

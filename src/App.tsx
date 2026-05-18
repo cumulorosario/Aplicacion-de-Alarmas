@@ -842,6 +842,44 @@ export default function App() {
 
                 <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
                   <h4 className="font-bold flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5 text-orange-500" />
+                    Persistencia del Servicio
+                  </h4>
+                  <div className="space-y-4">
+                    <div className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-2xl">
+                      <p className="text-xs text-orange-500 font-bold uppercase mb-2">Recomendación para Android:</p>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Para asegurar que las alarmas lleguen siempre, incluso con el celular bloqueado por mucho tiempo:
+                      </p>
+                      <ul className="mt-3 space-y-2 text-[10px] text-zinc-500 font-medium">
+                        <li className="flex gap-2">
+                          <span className="text-orange-500">1.</span>
+                          <span>Habilita el "Inicio Automático" (Auto-start) en los ajustes de la aplicación.</span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="text-orange-500">2.</span>
+                          <span>Desactiva la "Optimización de Batería" (poner en "Sin Restricciones").</span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="text-orange-500">3.</span>
+                          <span>Anclaje: En el menú de apps recientes, "bloquea" la app con el candado.</span>
+                        </li>
+                      </ul>
+                    </div>
+                    <div className="flex items-center justify-between pt-2">
+                      <div>
+                        <p className="text-sm font-bold text-white">Servicio de Fondo</p>
+                        <p className="text-xs text-zinc-500">Mantiene la conexión activa permanentemente.</p>
+                      </div>
+                      <div className="px-3 py-1 bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase rounded-lg border border-emerald-500/20">
+                        NATIVO OK
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6">
+                  <h4 className="font-bold flex items-center gap-2">
                     <Bell className="w-5 h-5 text-blue-500" />
                     Ajustes de Alerta
                   </h4>
